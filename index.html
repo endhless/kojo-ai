@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KOJO AI</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: #111;
+      color: white;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .app {
+      height: 100vh;
+      max-width: 700px;
+      margin: auto;
+      display: flex;
+      flex-direction: column;
+      background: #181818;
+    }
+
+    header {
+      padding: 16px;
+      background: #202020;
+      border-bottom: 1px solid #333;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    header h1 {
+      font-size: 20px;
+    }
+
+    header span {
+      font-size: 12px;
+      color: #aaa;
+    }
+
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px;
+    }
+
+    .message {
+      margin-bottom: 14px;
+      display: flex;
+    }
+
+    .message.user {
+      justify-content: flex-end;
+    }
+
+    .bubble {
+      max-width: 82%;
+      padding: 12px 15px;
+      border-radius: 16px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+    }
+
+    .user .bubble {
+      background: #2563eb;
+      border-bottom-right-radius: 4px;
+    }
+
+    .ai .bubble {
+      background: #2b2b2b;
+      border-bottom-left-radius: 4px;
+    }
+
+    .typing {
+      color: #aaa;
+      font-size: 13px;
+      padding: 0 18px 8px;
+      display: none;
+    }
+
+    .input-area {
+      padding: 12px;
+      background: #202020;
+      border-top: 1px solid #333;
+      display: flex;
+      gap: 8px;
+    }
+
+    textarea {
+      flex: 1;
+      resize: none;
+      border: none;
+      outline: none;
+      border-radius: 14px;
+      padding: 12px;
+      background: #303030;
+      color: white;
+      font-size: 15px;
+      min-height: 45px;
+      max-height: 120px;
+    }
+
+    button {
+      border: none;
+      border-radius: 14px;
+      padding: 0 16px;
+      background: #2563eb;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    .clear {
+      background: transparent;
+      color: #aaa;
+      font-size: 12px;
+      padding: 5px;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="app">
+
+  <header>
+    <div>
+      <h1>KOJO AI</h1>
+      <span>your guy, but AI</span>
+    </div>
+
+    <button class="clear" onclick="clearChat()">
+      Clear
+    </button>
+  </header>
+
+  <main id="chat"></main>
+
+  <div id="typing" class="typing">
+    KOJO AI is typing...
+  </div>
+
+  <div class="input-area">
+    <textarea
+      id="messageInput"
+      placeholder="Talk to me chale..."
+      rows="1"
+    ></textarea>
+
+    <button onclick="sendMessage()">
+      Send
+    </button>
+  </div>
+
+</div>
+
+<script>
+
+  /*
+    BACKEND CONNECTION
+
+    When your backend is ready, change this to:
+
+    const CONFIG = {
+      API_URL: "/api/chat"
+    };
+
+    For now the prototype uses demo replies.
+  */
+
+  const CONFIG = {
+    API_URL: null
+  };
+
+
+  /*
+    PERSONALITY
+
+    This is the part that gives the AI the
+    Ghana/Pidgin/playful texting personality.
+  */
+
+  const SYSTEM_PROMPT = `
+You are KOJO AI.
+
+Your personality should feel like a close Ghanaian friend chatting
+naturally with Kojo.
+
+Use Ghanaian/Pidgin expressions naturally when appropriate:
+"chale", "masa", "boi", "ahh", "ei", "wey", "no be small",
+"you barb", "charley", "abi", "herrh", etc.
+
+The conversation should feel casual and human.
+
+You can tease Kojo playfully when the situation calls for it.
+Don't make every response a roast.
+
+Don't sound like a formal customer-service chatbot.
+
+Keep responses reasonably short unless Kojo asks for detailed help.
+
+Match Kojo's texting style:
+- casual
+- playful
+- direct
+- sometimes sarcastic
+- Ghanaian/Pidgin expressions
+- occasional slang
+
+Do not overuse emojis.
+
+When explaining technical things, still make the explanation
+clear and step-by-step.
+
+You are KOJO AI, not ChatGPT.
+`;
+
+
+  /*
+    LOCAL MEMORY
+  */
+
+  let messages =
+    JSON.parse(localStorage.getItem("kojo_ai_messages")) || [];
+
+
+  function saveMessages() {
+    localStorage.setItem(
+      "kojo_ai_messages",
+      JSON.stringify(messages)
+    );
+  }
+
+
+  function addMessage(role, text) {
+
+    messages.push({
+      role: role,
+      content: text
+    });
+
+    saveMessages();
+
+    renderMessage(role, text);
+  }
+
+
+  function renderMessage(role, text) {
+
+    const chat = document.getElementById("chat");
+
+    const wrapper = document.createElement("div");
+
+    wrapper.className =
+      "message " + (role === "user" ? "user" : "ai");
+
+    const bubble = document.createElement("div");
+
+    bubble.className = "bubble";
+
+    bubble.textContent = text;
+
+    wrapper.appendChild(bubble);
+
+    chat.appendChild(wrapper);
+
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+
+  function renderHistory() {
+
+    const chat = document.getElementById("chat");
+
+    chat.innerHTML = "";
+
+    messages.forEach(message => {
+
+      renderMessage(
+        message.role,
+        message.content
+      );
+
+    });
+
+  }
+
+
+  /*
+    DEMO AI
+
+    This lets you test the interface before connecting
+    the real AI backend.
+  */
+
+  function demoReply(text) {
+
+    const lower = text.toLowerCase();
+
+    if (
+      lower.includes("hello") ||
+      lower.includes("hey") ||
+      lower.includes("hi")
+    ) {
+      return "Chale 😂 you dey come again. What's up?";
+    }
+
+    if (
+      lower.includes("how are you")
+    ) {
+      return "I dey cool oo 😂 You nko?";
+    }
+
+    if (
+      lower.includes("code") ||
+      lower.includes("coding")
+    ) {
+      return "Ahh coding again 😂. Send the thing make we cook am properly.";
+    }
+
+    if (
+      lower.includes("chale")
+    ) {
+      return "Chaleee 😂 I dey here. Talk to me.";
+    }
+
+    if (
+      lower.includes("tiktok")
+    ) {
+      return "😂 So we dey cook another TikTok content abi? I dey hear you.";
+    }
+
+    if (
+      lower.includes("project")
+    ) {
+      return "Don't worry masa, we go build am step by step. No rush.";
+    }
+
+    return "Hmm 😂 I hear you chale. Tell me more.";
+  }
+
+
+  /*
+    SEND MESSAGE
+  */
+
+  async function sendMessage() {
+
+    const input =
+      document.getElementById("messageInput");
+
+    const text = input.value.trim();
+
+    if (!text) return;
+
+    addMessage("user", text);
+
+    input.value = "";
+
+    showTyping(true);
+
+
+    /*
+      REAL BACKEND
+    */
+
+    if (CONFIG.API_URL) {
+
+      try {
+
+        const response = await fetch(
+          CONFIG.API_URL,
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type": "application/json"
+            },
+
+            body: JSON.stringify({
+              system: SYSTEM_PROMPT,
+              messages: messages
+            })
+          }
+        );
+
+
+        if (!response.ok) {
+          throw new Error("Server error");
+        }
+
+
+        const data =
+          await response.json();
+
+
+        const reply =
+          data.reply || "Chale something happen oo 😂";
+
+
+        showTyping(false);
+
+        addMessage(
+          "assistant",
+          reply
+        );
+
+        return;
+
+      } catch (error) {
+
+        console.error(error);
+
+        showTyping(false);
+
+        addMessage(
+          "assistant",
+          "Chale the AI backend no respond 😂. Check the server."
+        );
+
+        return;
+      }
+    }
+
+
+    /*
+      DEMO MODE
+    */
+
+    setTimeout(() => {
+
+      const reply =
+        demoReply(text);
+
+      showTyping(false);
+
+      addMessage(
+        "assistant",
+        reply
+      );
+
+    }, 700);
+
+  }
+
+
+  /*
+    TYPING INDICATOR
+  */
+
+  function showTyping(show) {
+
+    document.getElementById(
+      "typing"
+    ).style.display =
+      show ? "block" : "none";
+
+  }
+
+
+  /*
+    CLEAR CHAT
+  */
+
+  function clearChat() {
+
+    messages = [];
+
+    localStorage.removeItem(
+      "kojo_ai_messages"
+    );
+
+    renderHistory();
+  }
+
+
+  /*
+    ENTER TO SEND
+  */
+
+  document
+    .getElementById("messageInput")
+    .addEventListener(
+      "keydown",
+      function(event) {
+
+        if (
+          event.key === "Enter" &&
+          !event.shiftKey
+        ) {
+
+          event.preventDefault();
+
+          sendMessage();
+
+        }
+
+      }
+    );
+
+
+  /*
+    START
+  */
+
+  renderHistory();
+
+
+  if (messages.length === 0) {
+
+    addMessage(
+      "assistant",
+      "Chale 😂 KOJO AI dey online. Talk to me."
+    );
+
+  }
+
+</script>
+
+</body>
+</html>
